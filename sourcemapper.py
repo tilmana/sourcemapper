@@ -42,6 +42,8 @@ with open(args.file, "r") as file1:
     if file1content[-1] == "":
         file1content = file1content[:-1]
     for url in file1content:
+        if args.url:
+            url = args.url + "/" + url.split("/")[-1]
         url = url + ".map"
         totalURLs += 1
         if args.proxy:
