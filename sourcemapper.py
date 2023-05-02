@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 import requests
 import argparse
 
@@ -21,15 +22,20 @@ parser.add_argument('-d', '--delimiter', help='Specify alternative delimiter (de
 parser.add_argument('-u', '--url', help='Specify alternative URL and port (test production for example)', required=False)
 parser.add_argument('-p', '--proxy', help='Specify proxy (such as Burp Suite)', required=False)
 parser.add_argument('-v', '--verbose', help='Enable verbosity (returns responses for all URLs instead of only successful/blocked)', required=False, action='store_true')
+parser.add_argument('-o', '--output', help='Output file (writes valid URLs to specified location for use in reporting or further processing)', required=False)
+parser.add_argument('-y', '--force', help='Force processing even for URLs that do not have a ".js" extension', required=False, action='store_true')
+parser.add_argument('-e', '--error', help='Override validity check with other positive indicator, for rare instances where .map files are returned even with a 404 status code', required=False)
 
 args = parser.parse_args()
 
 totalURLs = 0
-totalMaps = 0
+validURLs = []
+validMaps = 0
+invalidMaps = 0
 now = datetime.now()
 
 print(bcolors.HEADER + "[+] Starting sourcemapper.py ... [+]" + bcolors.ENDC)
-print(bcolors.OKBLUE + f"|  Time: {now}  |" + bcolors.ENDC + "\n")
+print(bcolors.OKBLUE + f"|  Time: {now}  |" + bcolors.ENDC)
 
 if args.proxy:
     proxies = {
@@ -42,6 +48,10 @@ with open(args.file, "r") as file1:
     if file1content[-1] == "":
         file1content = file1content[:-1]
     for url in file1content:
+        if args.force:
+            if url[-3:] != ".js":
+                print(bcolors.FAIL + f"[!] No JS extension, skipping... {url} (use -y to force)" + bcolors.ENDC)
+                pass
         if args.url:
             url = args.url + "/" + url.split("/")[-1]
         url = url + ".map"
@@ -50,18 +60,46 @@ with open(args.file, "r") as file1:
             r1 = requests.get(url=url, proxies=proxies, verify=False)
         else:
             r1 = requests.get(url=url, verify=False)
-        if args.verbose:
-            if r1.status_code == 200:
-                totalMaps += 1
-                print(bcolors.OKGREEN + f"[+]           Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
-            elif str(r1.status_code)[0] == "4":
-                print(bcolors.FAIL + f"[+]           Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+        if r1.status_code == 200:
+            validMaps += 1
+            validURLs.append(url)
+            print(bcolors.OKGREEN + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+        elif r1.status_code == 404:
+            if args.error:
+                if args.error in r1.text:
+                    validMaps += 1
+                    validURLs.append(url)
+                    print(bcolors.OKGREEN + f"[+] Custom Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+                else:
+                    invalidMaps += 1
+                    print(bcolors.FAIL + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+            else:
+                invalidMaps += 1
+                print(bcolors.FAIL + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+        elif r1.status_code == 401 or r1.status_code == 403:
+            invalidMaps += 1
+            print(bcolors.WARNING + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
         else:
-            if r1.status_code == 200:
-                totalMaps += 1
-                print(bcolors.OKGREEN + f"[+]           Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
-            elif str(r1.status_code)[0] == "4" and r1.status_code != 404:
-                print(bcolors.FAIL + f"[+]           Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
-    print("\n")
-    print(bcolors.BOLD + "Total Source Maps: " + f"{totalMaps}" + bcolors.ENDC)
+            invalidMaps += 1
+            if args.verbose:
+                print(bcolors.FAIL + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+    print(bcolors.BOLD + "Total Source Maps: " + f"{validMaps}" + bcolors.ENDC)
+    print(bcolors.BOLD + "Total Invalid Files (no source maps returned): " + f"{invalidMaps}" + bcolors.ENDC)
     file1.close()
+
+if args.output:
+    fileName = args.output.split(".")
+    writeName = ""
+    for index in range(len(fileName)):
+        if index == len(fileName) - 1:
+            writeName += str(now) + "." + fileName[index]
+        else:
+            writeName += fileName[index] + "."
+    writeName = writeName.replace(" ", "_")
+    with open(writeName, "w") as file2:
+        for index, url in enumerate(validURLs):
+            if index == len(validURLs) - 1:
+                file2.write(url)
+            else:
+                file2.write(url + "\n")
+    file2.close()
