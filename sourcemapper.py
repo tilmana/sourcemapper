@@ -48,10 +48,9 @@ with open(args.file, "r") as file1:
     if file1content[-1] == "":
         file1content = file1content[:-1]
     for url in file1content:
-        if args.force:
-            if url[-3:] != ".js":
-                print(bcolors.FAIL + f"[!] No JS extension, skipping... {url} (use -y to force)" + bcolors.ENDC)
-                pass
+        if url[-3:] != ".js" and not args.force:
+            print(bcolors.FAIL + f"[!] No JS extension, skipping... {url} (use -y to force)" + bcolors.ENDC)
+            continue
         if args.url:
             url = args.url + "/" + url.split("/")[-1]
         url = url + ".map"
