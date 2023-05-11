@@ -25,6 +25,7 @@ parser.add_argument('-v', '--verbose', help='Enable verbosity (returns responses
 parser.add_argument('-o', '--output', help='Output file (writes valid URLs to specified location for use in reporting or further processing)', required=False)
 parser.add_argument('-y', '--force', help='Force processing even for URLs that do not have a ".js" extension', required=False, action='store_true')
 parser.add_argument('-e', '--error', help='Override validity check with other positive indicator (this argument\'s text in the response body), for rare instances where .map files are returned even with a 404 status code', required=False)
+parser.add_argument('-r', '--redirects', help='Follow redirects', required=False, action='store_true')
 
 args = parser.parse_args()
 
@@ -58,9 +59,15 @@ with open(args.file, "r") as file1:
         totalURLs += 1
         try:
             if args.proxy:
-                r1 = requests.get(url=url, proxies=proxies, verify=False)
+                if args.redirects:
+                    r1 = requests.get(url=url, proxies=proxies, verify=False)
+                else:
+                    r1 = requests.get(url=url, proxies=proxies, verify=False, allow_redirects=False)
             else:
-                r1 = requests.get(url=url, verify=False)
+                if args.redirects:
+                    r1 = requests.get(url=url, verify=False)
+                else:
+                    r1 = requests.get(url=url, verify=False, allow_redirects=False)
         except requests.exceptions.ConnectionError:
             print(bcolors.FAIL + f"[!] Connection error when attempting to connect to {url}!" + bcolors.ENDC)
             totalErrors += 1
@@ -88,11 +95,17 @@ with open(args.file, "r") as file1:
         elif r1.status_code == 401 or r1.status_code == 403:
             invalidMaps += 1
             print(bcolors.WARNING + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
+        elif r1.status_code == 301 or r1.status_code == 302:
+            invalidMaps += 1
+            redirect_url = r1.headers["Location"]
+            print(bcolors.WARNING + f"[+] Status: {r1.status_code}  Redirect Location: {redirect_url}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
         else:
             invalidMaps += 1
             if args.verbose:
                 print(bcolors.FAIL + f"[+] Status: {r1.status_code}    Content-Length: {len(r1.text)}    URL: {url}" + bcolors.ENDC)
     print(bcolors.BOLD + "Total Source Maps: " + f"{validMaps}" + bcolors.ENDC)
+    if validMaps == 0:
+        print(bcolors.BOLD + "Unexpected output? Try with '-v'!")
     if invalidMaps > 0:
         print(bcolors.BOLD + "Total Invalid Files (no source maps returned): " + f"{invalidMaps}" + bcolors.ENDC)
     if totalErrors > 0:
